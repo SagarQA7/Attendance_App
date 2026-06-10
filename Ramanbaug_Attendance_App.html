@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pathak Attendance Tracker</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .container { max-width: 400px; width: 100%; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); box-sizing: border-box;}
+        h2 { text-align: center; color: #ff5722; margin-top: 0;}
+        .tabs { display: flex; margin-bottom: 20px; border-radius: 8px; overflow: hidden; border: 1px solid #ddd;}
+        .tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; font-weight: bold; background: #f9f9f9; transition: 0.3s; }
+        .tab.active { background: #ff5722; color: white; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px; }
+        input, select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 16px; }
+        .camera-box { width: 100%; height: 250px; background: #000; border-radius: 8px; position: relative; margin-bottom: 10px; display: none; }
+        video { width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }
+        .capture-btn { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); background: white; color: black; border: none; padding: 8px 16px; border-radius: 20px; font-weight: bold; cursor: pointer; }
+        #preview-img { width: 100%; height: 250px; object-fit: cover; border-radius: 8px; display: none; margin-bottom: 10px; border: 2px solid #4CAF50;}
+        .submit-btn { width: 100%; padding: 14px; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; color: white; background-color: #4CAF50; margin-top: 10px; }
+        .submit-btn:disabled { background-color: #ccc; cursor: not-allowed; }
+        #status { margin-top: 15px; padding: 10px; border-radius: 6px; font-size: 14px; text-align: center; display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Attendance</h2>
+    
+    <div class="tabs">
+        <div class="tab active" id="tab-in" onclick="setAction('IN')">CLOCK IN</div>
+        <div class="tab" id="tab-out" onclick="setAction('OUT')">CLOCK OUT</div>
+    </div>
+
+    <div id="status"></div>
+
+    <div class="form-group">
+        <label>1. Capture Photo</label>
+        <div class="camera-box" id="camera-box">
+            <video id="video" autoplay playsinline muted></video>
+            <button class="capture-btn" type="button" onclick="captureImage()">📸 Capture</button>
+        </div>
+        <img id="preview-img" alt="Captured selfie">
+    </div>
+
+    <div class="form-group">
+        <label>2. Full Name</label>
+        <input type="text" id="username" placeholder="Enter your name" required>
+    </div>
+    
+    <div class="form-group">
+        <label>3. Department</label>
+        <select id="department" onchange="updateGatOptions()">
+            <option value="">Select Department...</option>
+            <option value="Dhol">Dhol</option>
+            <option value="Tasha">Tasha</option>
+            <option value="Dwaj">Dwaj</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>4. Gat Number</label>
+        <select id="gat" disabled>
+            <option value="">Select Gat...</option>
+        </select>
+    </div>
+
+    <button class="submit-btn" id="submitBtn" onclick="submitLog()">SUBMIT ENTRY</button>
+</div>
+
+<script>
+    // --- UPDATED Configuration ---
+    const TARGET_LAT = 18.5157; 
+    const TARGET_LNG = 73.9271;
+    const MAX_DISTANCE_METERS = 1000; // Increased to 500 meter radius
+    
+    // Remember to paste your Google Apps Script Web App URL here!
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxbubXXc2CCnH3rkaxLDPjjC935L7MAHjLX7W0jVMwoWa2QAyfjSe4vK1HCK7EayxKztw/exec"; 
+
+    // --- State Variables ---
+    let currentAction = 'IN';
+    let currentLat = null;
+    let currentLng = null;
+    let capturedPhotoBase64 = null;
+    const video = document.getElementById('video');
+
+    // Initialize
+    window.addEventListener('load', () => {
+        checkPermissions();
+    });
+
+    function setAction(action) {
+        currentAction = action;
+        document.getElementById('tab-in').classList.toggle('active', action === 'IN');
+        document.getElementById('tab-out').classList.toggle('active', action === 'OUT');
+    }
+
+    // Dynamic Gat Dropdown Logic
+    function updateGatOptions() {
+        const dept = document.getElementById('department').value;
+        const gatSelect = document.getElementById('gat');
+        gatSelect.innerHTML = '<option value="">Select Gat...</option>';
+        
+        if (!dept) {
+            gatSelect.disabled = true;
+            return;
+        }
+        
+        gatSelect.disabled = false;
+        let maxGat = (dept === 'Dhol') ? 12 : 4; 
+        
+        for (let i = 1; i <= maxGat; i++) {
+            let option = document.createElement('option');
+            option.value = i;
+            option.text = `Gat ${i}`;
+            gatSelect.appendChild(option);
+        }
+    }
+
+    // Start Location and Camera
+    async function checkPermissions() {
+        document.getElementById('camera-box').style.display = 'block';
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+            video.srcObject = stream;
+        } catch (err) {
+            showStatus("Camera access is required.", "red");
+        }
+
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => { currentLat = pos.coords.latitude; currentLng = pos.coords.longitude; },
+                () => { showStatus("Location access is required.", "red"); },
+                { enableHighAccuracy: true }
+            );
+        }
+    }
+
+    // Capture Image and Compress immediately
+    function captureImage() {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 200; canvas.height = 200; 
+
+        // Draw and convert to grayscale
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        for (let i = 0; i < imgData.data.length; i += 4) {
+            let avg = (imgData.data[i] + imgData.data[i + 1] + imgData.data[i + 2]) / 3;
+            imgData.data[i] = imgData.data[i + 1] = imgData.data[i + 2] = avg; 
+        }
+        ctx.putImageData(imgData, 0, 0);
+
+        // Compress to tiny size (< 15kb)
+        capturedPhotoBase64 = canvas.toDataURL('image/jpeg', 0.2); 
+        
+        // Update UI
+        document.getElementById('camera-box').style.display = 'none';
+        document.getElementById('preview-img').src = capturedPhotoBase64;
+        document.getElementById('preview-img').style.display = 'block';
+    }
+
+    // Geofencing Distance Calculator (Calculates exact distance in meters between two coordinates)
+    function getDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371e3; 
+        const p1 = lat1 * Math.PI/180;
+        const p2 = lat2 * Math.PI/180;
+        const dp = (lat2-lat1) * Math.PI/180;
+        const dl = (lon2-lon1) * Math.PI/180;
+        const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
+        return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+    }
+
+    function showStatus(msg, color) {
+        const s = document.getElementById('status');
+        s.style.display = 'block'; s.innerText = msg;
+        s.style.backgroundColor = color === 'red' ? '#ffebee' : '#e8f5e9';
+        s.style.color = color === 'red' ? '#c62828' : '#2e7d32';
+    }
+
+    // Submit Logic
+    async function submitLog() {
+        // 1. Double Punch Prevention (Local Storage)
+        const lastPunch = localStorage.getItem('lastAction');
+        if (currentAction === 'IN' && lastPunch === 'IN') {
+            return showStatus("You are already Clocked In! Please Clock Out first.", "red");
+        }
+        if (currentAction === 'OUT' && lastPunch === 'OUT') {
+            return showStatus("You are already Clocked Out! Please Clock In first.", "red");
+        }
+
+        // 2. Validate Fields
+        const name = document.getElementById('username').value;
+        const dept = document.getElementById('department').value;
+        const gat = document.getElementById('gat').value;
+        
+        if(!name || !dept || !gat || !capturedPhotoBase64) {
+            return showStatus("Please complete all fields and capture a photo.", "red");
+        }
+
+        // 3. Validate Location (The updated Geofence check)
+        if(!currentLat) {
+            return showStatus("Please wait a moment while we lock your GPS coordinates.", "red");
+        }
+        
+        const distance = getDistance(currentLat, currentLng, TARGET_LAT, TARGET_LNG);
+        if(distance > MAX_DISTANCE_METERS) {
+            return showStatus(`Alert: You are ${Math.round(distance)} meters away. You must be within ${MAX_DISTANCE_METERS}m of the location to punch.`, "red");
+        }
+
+        const payload = {
+            action: currentAction,
+            name: name,
+            department: dept,
+            gat: gat,
+            timestamp: new Date().toISOString(),
+            photo: capturedPhotoBase64
+        };
+
+        // UI Update
+        document.getElementById('submitBtn').innerText = "Logging...";
+        document.getElementById('submitBtn').disabled = true;
+
+        try {
+            // ONCE GOOGLE SCRIPT IS READY, UNCOMMENT THIS BLOCK
+             await fetch(GOOGLE_SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            
+
+            // Success Updates
+            localStorage.setItem('lastAction', currentAction); 
+            showStatus(`Success! Clocked ${currentAction} recorded.`, "green");
+            setTimeout(() => window.location.reload(), 2000); 
+
+        } catch (error) {
+            showStatus("Network Error. Try again.", "red");
+            document.getElementById('submitBtn').innerText = "SUBMIT ENTRY";
+            document.getElementById('submitBtn').disabled = false;
+        }
+    }
+</script>
+
+</body>
+</html>
