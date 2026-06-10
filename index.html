@@ -206,7 +206,10 @@
         
         const distance = getDistance(currentLat, currentLng, TARGET_LAT, TARGET_LNG);
         if(distance > MAX_DISTANCE_METERS) {
-            return showStatus(`Alert: You are ${Math.round(distance)} meters away. You must be within ${MAX_DISTANCE_METERS}m of the location to punch.`, "red");
+            return showStatus(`शाळेत जाऊन हजेरी टाक  भाऊ !`, "red");
+        
+
+            // return showStatus(`Alert: You are ${Math.round(distance)} meters away. You must be within ${MAX_DISTANCE_METERS}m of the location to punch.`, "red");
         }
 
         const payload = {
